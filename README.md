@@ -18,24 +18,7 @@ Projeto simples que contém um arquivo HTML com funcionalidade para converter CE
 
 ## Publicar no GitHub
 
-Se você ainda não inicializou o repositório local, execute os comandos abaixo no terminal (PowerShell):
-
-```powershell
-cd "c:\Users\alexsandro.souza\OneDrive - NDD.Tech\Documentos\Geo_coverter"
-git init
-git add "cep-geo-converter (1).html"
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/sandrondd777-cmyk/Conversor-de-cep-para-lat-long.git
-git push -u origin main
-```
-
-Se já existir um repositório local com commits, apenas adicione o remote e faça o push:
-
-```powershell
-git remote add origin https://github.com/sandrondd777-cmyk/Conversor-de-cep-para-lat-long.git
-git branch -M main
-git push -u origin main
+ 
 ```
 
 ## Próximos passos recomendados
