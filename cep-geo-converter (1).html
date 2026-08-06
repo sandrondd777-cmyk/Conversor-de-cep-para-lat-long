@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CEP ⇄ Coordenadas</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fjalla+One&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+  :root {
+    --ink: #1B2A3D;
+    --ink-2: #223349;
+    --paper: #F2ECD8;
+    --paper-dim: #E4DBC2;
+    --stamp-red: #C94C36;
+    --map-teal: #3F7C6E;
+    --slate: #8B98A6;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  /* graticule background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--ink-2) 1px, transparent 1px),
+      linear-gradient(90deg, var(--ink-2) 1px, transparent 1px);
+    background-size: 48px 48px;
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .wrap {
+    position: relative;
+    max-width: min(1120px, 100%);
+    margin: 0 auto;
+    padding: 56px 24px 80px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--map-teal);
+    margin-bottom: 12px;
+  }
+
+  h1 {
+    font-family: 'Fjalla One', sans-serif;
+    font-size: clamp(32px, 6vw, 48px);
+    letter-spacing: 1px;
+    margin: 0 0 12px;
+    color: var(--paper);
+  }
+
+  header p {
+    color: var(--slate);
+    font-size: 15px;
+    max-width: 480px;
+    margin: 0 auto;
+    line-height: 1.5;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--ink-2);
+    border-radius: 10px;
+    padding: 4px;
+    margin-bottom: 28px;
+  }
+
+  .tab {
+    flex: 1;
+    text-align: center;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: var(--slate);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+
+  .tab.active {
+    background: var(--stamp-red);
+    color: var(--paper);
+  }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .card {
+    background: var(--paper);
+    color: var(--ink);
+    border-radius: 14px;
+    padding: 28px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+  }
+
+  label {
+    display: block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--map-teal);
+    margin-bottom: 8px;
+  }
+
+  .row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  input {
+    flex: 1;
+    padding: 13px 14px;
+    border: 2px solid var(--paper-dim);
+    background: #fff;
+    border-radius: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 15px;
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.15s;
+    min-width: 0;
+  }
+
+  input:focus { border-color: var(--stamp-red); }
+
+  button.go {
+    padding: 13px 22px;
+    border: none;
+    border-radius: 8px;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
+  }
+
+  button.go:hover { background: var(--stamp-red); }
+  button.go:active { transform: scale(0.97); }
+  button.go:disabled { opacity: 0.5; cursor: wait; }
+
+  .hint {
+    font-size: 12px;
+    color: #7A7360;
+    margin-top: 4px;
+  }
+
+  .split { display: flex; gap: 10px; }
+  .split input { flex: 1; }
+
+  .result {
+    margin-top: 24px;
+    display: none;
+  }
+
+  .result.show {
+    display: block;
+    animation: stamp-in 0.35s ease-out;
+  }
+
+  @keyframes stamp-in {
+    0% { opacity: 0; transform: scale(1.3) rotate(-6deg); }
+    60% { opacity: 1; transform: scale(0.96) rotate(-2deg); }
+    100% { opacity: 1; transform: scale(1) rotate(-2deg); }
+  }
+
+  .postmark {
+    position: relative;
+    border: 3px double var(--stamp-red);
+    border-radius: 10px;
+    padding: 20px 22px;
+    color: var(--stamp-red);
+    transform: rotate(-1.5deg);
+  }
+
+  .postmark .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.75;
+    margin-bottom: 6px;
+  }
+
+  .postmark .value {
+    font-family: 'Fjalla One', sans-serif;
+    font-size: 22px;
+    letter-spacing: 0.5px;
+    color: var(--ink);
+    margin-bottom: 4px;
+    word-break: break-word;
+  }
+
+  .postmark .sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: #5b5647;
+  }
+
+  .error {
+    display: none;
+    margin-top: 18px;
+    padding: 14px 16px;
+    background: #F7DEDA;
+    border: 1px solid var(--stamp-red);
+    border-radius: 8px;
+    color: #8A2E1F;
+    font-size: 13px;
+  }
+
+  .error.show { display: block; }
+
+  .info {
+    display: none;
+    margin-top: 18px;
+    padding: 14px 16px;
+    background: #E1EEEA;
+    border: 1px solid var(--map-teal);
+    border-radius: 8px;
+    color: #23524A;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .info.show { display: block; }
+
+  .nearby-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 18px;
+  }
+
+  @media (max-width: 480px) {
+    .nearby-grid { grid-template-columns: 1fr; }
+  }
+
+  .nearby-card {
+    border: 2px solid var(--paper-dim);
+    border-radius: 8px;
+    padding: 12px 14px;
+    background: #fff;
+  }
+
+  .copy-panel {
+    margin-top: 18px;
+    background: #F7F4EA;
+    border: 1px solid #D7CEB9;
+    border-radius: 12px;
+    padding: 16px;
+    color: #2E2A1D;
+  }
+
+  .copy-panel__header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .copy-panel__label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--ink-2);
+  }
+
+  .copy-panel__text {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+
+  .panel-layout {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .panel-layout > .card {
+    flex: 1 1 100%;
+    min-width: 280px;
+  }
+
+  .map-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+    z-index: 9998;
+  }
+
+  .map-backdrop.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .map-panel {
+    position: fixed;
+    top: 10vh;
+    left: 50%;
+    transform: translateX(-50%) scale(0.96);
+    width: min(95vw, 900px);
+    height: min(80vh, 720px);
+    max-height: 85vh;
+    display: none;
+    background: var(--paper);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+    border-radius: 18px;
+    z-index: 9999;
+    overflow: hidden;
+    opacity: 0;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+    flex-direction: column;
+  }
+
+  .map-panel.open {
+    display: flex;
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+
+  .map-panel__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--ink-2);
+    color: var(--paper);
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    font-family: 'IBM Plex Mono', monospace;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-size: 12px;
+  }
+
+  #cepMap {
+    width: 100%;
+    height: calc(100% - 54px);
+    min-height: calc(60vh - 54px);
+  }
+
+  .nearby-card .n-cep {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--stamp-red);
+    margin-bottom: 4px;
+  }
+
+  .nearby-card .n-addr {
+    font-size: 12px;
+    color: var(--ink);
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+
+  .nearby-card .n-coords {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: #7A7360;
+  }
+
+  footer {
+    text-align: center;
+    margin-top: 36px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--slate);
+    letter-spacing: 0.5px;
+  }
+
+  footer a { color: var(--map-teal); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Latitude · Longitude · CEP</div>
+    <h1>Conversor de Endereço</h1>
+    <p>Converta um CEP em coordenadas geográficas, ou encontre o CEP mais próximo a partir de um ponto no mapa.</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="cep2geo">CEP → COORDENADAS</button>
+    <button class="tab" data-tab="geo2cep">COORDENADAS → CEP</button>
+  </div>
+
+  <!-- CEP -> LAT/LNG -->
+  <div class="panel active" id="cep2geo">
+    <div class="card">
+      <label for="cepInput">CEP</label>
+      <div class="row">
+        <input id="cepInput" placeholder="00000-000" maxlength="9" inputmode="numeric">
+        <div style="display:flex; gap:10px; align-items:center;">
+          <button class="go" id="cepBtn">Buscar</button>
+          <button class="go map-toggle" id="toggleMap" style="display:none;">🗺️ Mapa</button>
+        </div>
+      </div>
+      <div class="hint">Ex: 01310-100 (Av. Paulista, São Paulo)</div>
+
+      <div class="error" id="cepError"></div>
+      <div class="info" id="cepInfo"></div>
+
+      <div class="panel-layout">
+        <div class="card">
+          <div class="result" id="cepResult">
+            <div class="postmark">
+              <div class="label">Endereço encontrado</div>
+              <div class="value" id="cepAddr">—</div>
+              <div class="sub" id="cepCoords">lat —, lng —</div>
+            </div>
+          </div>
+
+          <div id="cepNearby" class="nearby-grid" style="display:none;"></div>
+          <div id="cepListPanel" class="copy-panel" style="display:none;">
+            <div class="copy-panel__header">
+              <div class="copy-panel__label">Lista de alternativas</div>
+              <button class="go" id="copyAlternatives">Copiar lista</button>
+            </div>
+            <pre id="cepListText" class="copy-panel__text"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LAT/LNG -> CEP -->
+  <div class="panel" id="geo2cep">
+    <div class="card">
+      <label>Coordenadas</label>
+      <div class="split" style="margin-bottom:10px;">
+        <input id="latInput" placeholder="Latitude, ex: -23.5613" inputmode="decimal">
+        <input id="lngInput" placeholder="Longitude, ex: -46.6558" inputmode="decimal">
+      </div>
+      <button class="go" id="geoBtn" style="width:100%;">Buscar CEP</button>
+      <div class="hint">Dica: cole coordenadas do Google Maps (botão direito → "O que há aqui?")</div>
+
+      <div class="error" id="geoError"></div>
+
+      <div class="result" id="geoResult">
+        <div class="postmark">
+          <div class="label">CEP mais próximo</div>
+          <div class="value" id="geoCep">—</div>
+          <div class="sub" id="geoAddr">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="map-backdrop" id="mapBackdrop"></div>
+  <div class="map-panel" id="cepMapPanel">
+    <div class="map-panel__header">
+      <span>Mapa</span>
+      <button class="go" id="closeMap" style="padding: 8px 12px; font-size: 11px;">Fechar</button>
+    </div>
+    <div id="cepMap"></div>
+  </div>
+  <footer>
+    Dados via ViaCEP + OpenStreetMap Nominatim · uso livre, sem chave de API
+  </footer>
+</div>
+
+<script>
+  // tabs
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  function showError(el, msg) {
+    el.textContent = msg;
+    el.classList.add('show');
+  }
+  function hideError(el) {
+    el.classList.remove('show');
+  }
+
+  // CEP -> coordinates
+  const cepInput = document.getElementById('cepInput');
+  const cepBtn = document.getElementById('cepBtn');
+  const cepError = document.getElementById('cepError');
+  const cepResult = document.getElementById('cepResult');
+  const cepAddr = document.getElementById('cepAddr');
+  const cepCoords = document.getElementById('cepCoords');
+
+  cepInput.addEventListener('input', () => {
+    let v = cepInput.value.replace(/\D/g, '').slice(0, 8);
+    if (v.length > 5) v = v.slice(0,5) + '-' + v.slice(5);
+    cepInput.value = v;
+  });
+
+  const cepNearby = document.getElementById('cepNearby');
+  const cepInfo = document.getElementById('cepInfo');
+
+  function showInfo(el, msg) {
+    el.innerHTML = msg;
+    el.classList.add('show');
+  }
+  function hideInfo(el) {
+    el.classList.remove('show');
+  }
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  let map;
+  let mapLayerGroup;
+  const mapPanel = document.getElementById('cepMapPanel');
+  const mapToggle = document.getElementById('toggleMap');
+
+  function initMap() {
+    if (map) return;
+    map = L.map('cepMap', { zoomControl: true }).setView([-14.235, -51.9253], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }).addTo(map);
+    mapLayerGroup = L.layerGroup().addTo(map);
+  }
+
+  const mapBackdrop = document.getElementById('mapBackdrop');
+
+  function showMap() {
+    mapBackdrop.classList.add('open');
+    mapPanel.classList.add('open');
+    initMap();
+    setTimeout(() => map.invalidateSize(), 250);
+  }
+
+  function hideMap() {
+    mapBackdrop.classList.remove('open');
+    mapPanel.classList.remove('open');
+    if (map) {
+      mapLayerGroup.clearLayers();
+    }
+  }
+
+  mapBackdrop.addEventListener('click', hideMap);
+
+  function atualizarMapa(principal, alternativas = []) {
+    initMap();
+    mapLayerGroup.clearLayers();
+
+    const marcadores = [];
+    if (principal) {
+      const marker = L.marker([principal.lat, principal.lng]).addTo(mapLayerGroup);
+      marker.bindPopup(`<strong>CEP atual</strong><br>${principal.cep}<br>${principal.endereco}`).openPopup();
+      marcadores.push([principal.lat, principal.lng]);
+    }
+
+    alternativas.forEach(item => {
+      const marker = L.marker([item.lat, item.lng]).addTo(mapLayerGroup);
+      marker.bindPopup(`<strong>Alternativa</strong><br>${item.cep}<br>${item.endereco}`);
+      marcadores.push([item.lat, item.lng]);
+    });
+
+    if (marcadores.length) {
+      const bounds = L.latLngBounds(marcadores);
+      map.fitBounds(bounds.pad(0.25));
+    }
+  }
+
+  // tenta geocodificar um endereço; retorna {lat, lng} ou null
+  async function tentarGeocodificar(enderecoStr) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(enderecoStr)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data.length) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    } catch (e) { /* ignora e segue tentando os próximos */ }
+    return null;
+  }
+
+  async function tentarGeocodificarPorCep(cep, localidade, uf) {
+    const partes = [cep];
+    if (localidade) partes.push(localidade);
+    if (uf) partes.push(uf);
+    partes.push('Brasil');
+    const enderecoCep = partes.filter(Boolean).join(' ');
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(enderecoCep)}`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+      if (data.length) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    } catch (e) { /* ignora */ }
+    return null;
+  }
+
+  async function tentarGeocodificarComFallback(item) {
+    const partes = [];
+    if (item.logradouro) partes.push(item.logradouro);
+    if (item.bairro) partes.push(item.bairro);
+    if (item.localidade) partes.push(item.localidade);
+    if (item.uf) partes.push(item.uf);
+    const enderecoCompleto = partes.length ? `${partes.join(', ')}, Brasil` : '';
+
+    if (enderecoCompleto) {
+      let coords = await tentarGeocodificar(enderecoCompleto);
+      if (coords) return { coords, endereco: enderecoCompleto };
+    }
+
+    if (item.cep) {
+      const coordsCep = await tentarGeocodificarPorCep(item.cep, item.localidade, item.uf);
+      if (coordsCep) return { coords: coordsCep, endereco: `CEP ${item.cep}, ${item.localidade || ''} ${item.uf || ''}, Brasil`.trim() };
+    }
+
+    const partesSimples = [];
+    if (item.bairro) partesSimples.push(item.bairro);
+    if (item.localidade) partesSimples.push(item.localidade);
+    if (item.uf) partesSimples.push(item.uf);
+    const enderecoSimples = partesSimples.length ? `${partesSimples.join(', ')}, Brasil` : '';
+    if (enderecoSimples && enderecoSimples !== enderecoCompleto) {
+      const coords = await tentarGeocodificar(enderecoSimples);
+      if (coords) return { coords, endereco: enderecoSimples };
+    }
+
+    return null;
+  }
+
+  // monta lista de CEPs candidatos "próximos": primeiro tenta mesma rua (ViaCEP),
+  // depois completa com CEPs numericamente vizinhos
+  async function montarCandidatos(viaCepData, cepOriginal) {
+    const candidatos = [];
+    const vistos = new Set([cepOriginal]);
+
+    if (viaCepData.logradouro && viaCepData.logradouro.trim().length >= 3) {
+      try {
+        const url = `https://viacep.com.br/ws/${viaCepData.uf}/${encodeURIComponent(viaCepData.localidade)}/${encodeURIComponent(viaCepData.logradouro)}/json/`;
+        const resp = await fetch(url);
+        const lista = await resp.json();
+        if (Array.isArray(lista)) {
+          for (const item of lista) {
+            const cepLimpo = (item.cep || '').replace(/\D/g, '');
+            if (cepLimpo && !vistos.has(cepLimpo)) {
+              vistos.add(cepLimpo);
+              candidatos.push(item);
+            }
+          }
+        }
+      } catch (e) { /* segue para o fallback numérico */ }
+    }
+
+    // completa com CEPs vizinhos por número, caso a busca por rua não renda o suficiente
+    if (candidatos.length < 8) {
+      const base = parseInt(cepOriginal, 10);
+      const offsets = [1,-1,2,-2,3,-3,4,-4,5,-5,8,-8,12,-12,15,-15,20,-20,25,-25,30,-30];
+      for (const off of offsets) {
+        if (candidatos.length >= 20) break;
+        const candidatoCep = String(base + off).padStart(8, '0');
+        if (vistos.has(candidatoCep)) continue;
+        vistos.add(candidatoCep);
+        try {
+          const resp = await fetch(`https://viacep.com.br/ws/${candidatoCep}/json/`);
+          const data = await resp.json();
+          if (!data.erro) candidatos.push(data);
+        } catch (e) { /* ignora este candidato */ }
+      }
+    }
+
+    return candidatos;
+  }
+
+  async function buscarCepsProximos(viaCepData, cepOriginal) {
+    cepNearby.innerHTML = '';
+    cepNearby.style.display = 'none';
+
+    const candidatos = await montarCandidatos(viaCepData, cepOriginal);
+    const encontrados = [];
+
+    for (const c of candidatos) {
+      if (encontrados.length >= 4) break;
+      const resultado = await tentarGeocodificarComFallback(c);
+      if (resultado) {
+        encontrados.push({ cep: c.cep, endereco: resultado.endereco, ...resultado.coords });
+      }
+      await sleep(1100); // respeita o limite de uso do Nominatim (~1 req/s)
+    }
+
+    if (encontrados.length) {
+      cepNearby.style.display = 'grid';
+      cepNearby.innerHTML = encontrados.map(item => `
+        <div class="nearby-card">
+          <div class="n-cep">${item.cep}</div>
+          <div class="n-addr">${item.endereco}</div>
+          <div class="n-coords">lat ${item.lat.toFixed(6)}, lng ${item.lng.toFixed(6)}</div>
+        </div>
+      `).join('');
+
+      const lista = encontrados.map((item, index) =>
+        `${index + 1}. CEP: ${item.cep}\n   Lat: ${item.lat.toFixed(6)}\n   Lng: ${item.lng.toFixed(6)}\n   Endereço: ${item.endereco}`
+      ).join('\n\n');
+
+      document.getElementById('cepListText').textContent = lista;
+      document.getElementById('cepListPanel').style.display = 'block';
+    } else {
+      document.getElementById('cepListPanel').style.display = 'none';
+    }
+
+    return encontrados;
+  }
+
+  function atualizarMapas(principal, alternativas = []) {
+    if (!principal && alternativas.length === 0) {
+      hideMap();
+      return;
+    }
+    atualizarMapa(principal, alternativas);
+  }
+
+  async function buscarPorCep() {
+    const raw = cepInput.value.replace(/\D/g, '');
+    hideError(cepError);
+    hideInfo(cepInfo);
+    cepResult.classList.remove('show');
+    cepNearby.style.display = 'none';
+    cepNearby.innerHTML = '';
+
+    if (raw.length !== 8) {
+      showError(cepError, 'Digite um CEP válido com 8 dígitos.');
+      return;
+    }
+
+    cepBtn.disabled = true;
+    cepBtn.textContent = 'Buscando...';
+
+    try {
+      const viaCepResp = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
+      const viaCepData = await viaCepResp.json();
+
+      if (viaCepData.erro) {
+        showError(cepError, 'CEP não encontrado.');
+        return;
+      }
+
+      const enderecoStr = `${viaCepData.logradouro || ''}, ${viaCepData.bairro || ''}, ${viaCepData.localidade} - ${viaCepData.uf}, Brasil`;
+      let coords = await tentarGeocodificar(enderecoStr);
+
+      if (!coords) {
+        coords = await tentarGeocodificarPorCep(raw, viaCepData.localidade, viaCepData.uf);
+      }
+
+      if (coords) {
+        cepAddr.textContent = enderecoStr;
+        cepCoords.textContent = `lat ${coords.lat.toFixed(6)}, lng ${coords.lng.toFixed(6)}`;
+        cepResult.classList.add('show');
+
+        cepBtn.textContent = 'Buscando alternativas...';
+        const encontrados = await buscarCepsProximos(viaCepData, raw);
+        if (encontrados.length) {
+          showInfo(cepInfo, `Endereço encontrado. A seguir, ${encontrados.length} CEP(s) alternativo(s) mais próximos:`);
+          mapToggle.style.display = 'inline-flex';
+          atualizarMapas({ cep: raw, endereco: enderecoStr, ...coords }, encontrados);
+        } else {
+          showInfo(cepInfo, `Endereço encontrado mas não foi possível localizar CEPs alternativos com coordenadas.`);
+          mapToggle.style.display = 'inline-flex';
+          atualizarMapas({ cep: raw, endereco: enderecoStr, ...coords }, []);
+        }
+        return;
+      }
+
+      // endereço exato não geocodificável — busca alternativas próximas
+      showInfo(cepInfo, `Esse endereço não está indexado no mapa (comum em ruas novas ou pouco mapeadas). Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Buscando os CEPs e coordenadas mais próximos, aguarde...`);
+      cepBtn.textContent = 'Buscando próximos...';
+
+      const encontrados = await buscarCepsProximos(viaCepData, raw);
+
+      if (!encontrados.length) {
+        showInfo(cepInfo, `Esse endereço não está indexado no mapa. Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Também não foi possível localizar CEPs vizinhos com coordenadas.`);
+        mapToggle.style.display = 'none';
+        atualizarMapas(null, []);
+      } else {
+        showInfo(cepInfo, `Esse endereço não está indexado no mapa. Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Abaixo, os CEPs e coordenadas mais próximos encontrados (mesma rua ou região):`);
+        mapToggle.style.display = 'inline-flex';
+        atualizarMapas(null, encontrados);
+      }
+    } catch (err) {
+      showError(cepError, 'Erro ao buscar dados. Tente novamente.');
+    } finally {
+      cepBtn.disabled = false;
+      cepBtn.textContent = 'Buscar';
+    }
+  }
+
+  cepBtn.addEventListener('click', buscarPorCep);
+  cepInput.addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorCep(); });
+
+  mapToggle.addEventListener('click', () => {
+    if (mapPanel.classList.contains('open')) {
+      hideMap();
+    } else {
+      showMap();
+    }
+  });
+
+  document.getElementById('closeMap').addEventListener('click', () => {
+    hideMap();
+  });
+
+  document.getElementById('copyAlternatives').addEventListener('click', () => {
+    const text = document.getElementById('cepListText').textContent;
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      showInfo(cepInfo, 'Lista copiada para a área de transferência.');
+    }).catch(() => {
+      showError(cepError, 'Não foi possível copiar a lista automaticamente. Selecione e copie manualmente.');
+    });
+  });
+
+  // coordinates -> CEP
+  const latInput = document.getElementById('latInput');
+  const lngInput = document.getElementById('lngInput');
+  const geoBtn = document.getElementById('geoBtn');
+  const geoError = document.getElementById('geoError');
+  const geoResult = document.getElementById('geoResult');
+  const geoCep = document.getElementById('geoCep');
+  const geoAddr = document.getElementById('geoAddr');
+
+  async function buscarPorCoords() {
+    hideError(geoError);
+    geoResult.classList.remove('show');
+
+    const lat = parseFloat(latInput.value);
+    const lng = parseFloat(lngInput.value);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      showError(geoError, 'Digite latitude e longitude válidas.');
+      return;
+    }
+
+    geoBtn.disabled = true;
+    geoBtn.textContent = 'Buscando...';
+
+    try {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`;
+      const resp = await fetch(url);
+      const data = await resp.json();
+
+      const cep = data?.address?.postcode;
+      if (!cep) {
+        showError(geoError, 'Não foi possível encontrar um CEP para essas coordenadas.');
+        return;
+      }
+
+      const a = data.address;
+      const enderecoStr = [a.road, a.suburb || a.neighbourhood, a.city || a.town || a.village, a.state]
+        .filter(Boolean).join(', ');
+
+      geoCep.textContent = cep;
+      geoAddr.textContent = enderecoStr || data.display_name;
+      geoResult.classList.add('show');
+    } catch (err) {
+      showError(geoError, 'Erro ao buscar dados. Tente novamente.');
+    } finally {
+      geoBtn.disabled = false;
+      geoBtn.textContent = 'Buscar CEP';
+    }
+  }
+
+  geoBtn.addEventListener('click', buscarPorCoords);
+  [latInput, lngInput].forEach(inp => inp.addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorCoords(); }));
+</script>
+</body>
+</html>
