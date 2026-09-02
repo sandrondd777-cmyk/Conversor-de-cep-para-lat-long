@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CEP ⇄ Coordenadas</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="styles.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Latitude · Longitude · CEP</div>
+    <h1>Conversor de Endereço</h1>
+    <p>Converta um CEP em coordenadas geográficas, ou encontre o CEP mais próximo a partir de um ponto no mapa.</p>
+  </header>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="cep2geo">CEP → COORDENADAS</button>
+    <button class="tab" data-tab="geo2cep">COORDENADAS → CEP</button>
+    <button class="tab" data-tab="routes">Rotas</button>
+  </div>
+
+  <!-- CEP -> LAT/LNG -->
+  <div class="panel active" id="cep2geo">
+    <div class="card">
+      <label for="cepInput">CEP</label>
+      <div class="row">
+        <input id="cepInput" placeholder="00000-000" maxlength="9" inputmode="numeric">
+        <div style="display:flex; gap:10px; align-items:center;">
+          <button class="go" id="cepBtn">Buscar</button>
+          <button class="go map-toggle" id="toggleMap">🗺️ Mapa</button>
+        </div>
+      </div>
+  
+        
+      <div class="hint">Ex: 01310-100 (Av. Paulista, São Paulo)</div>
+
+      <div class="error" id="cepError"></div>
+      <div class="info" id="cepInfo"></div>
+
+      <div class="panel-layout">
+        <div class="card">
+          <div class="result" id="cepResult">
+            <div class="postmark">
+              <div class="label">Endereço encontrado</div>
+              <div class="value" id="cepAddr">—</div>
+              <div class="coordinates-line">
+                <div class="sub" id="cepCoords">lat —, lng —</div>
+                <button class="copy-icon" id="copyCoordinates" type="button" aria-label="Copiar coordenadas" title="Copiar coordenadas">
+                  <svg class="icon-copy" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  <svg class="icon-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="cepNearby" class="nearby-grid" style="display:none;"></div>
+          <div id="cepListPanel" class="copy-panel" style="display:none;">
+            <div class="copy-panel__header">
+              <div class="copy-panel__label">Lista de alternativas</div>
+              <button class="go" id="copyAlternatives">Copiar lista</button>
+            </div>
+            <pre id="cepListText" class="copy-panel__text"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LAT/LNG -> CEP -->
+  <div class="panel" id="geo2cep">
+    <div class="card">
+      <label>Coordenadas</label>
+      <div class="split" style="margin-bottom:10px;">
+        <input id="latInput" placeholder="Latitude, ex: -23.5613" inputmode="decimal">
+        <input id="lngInput" placeholder="Longitude, ex: -46.6558" inputmode="decimal">
+      </div>
+      <button class="go" id="geoBtn" style="width:100%;">Buscar CEP</button>
+      <div class="hint">Dica: cole coordenadas do Google Maps (botão direito → "O que há aqui?")</div>
+
+      <div class="error" id="geoError"></div>
+
+      <div class="result" id="geoResult">
+        <div class="postmark">
+          <div class="label">CEP mais próximo</div>
+          <div class="value" id="geoCep">—</div>
+          <div class="sub" id="geoAddr">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- ROUTES PANEL (top-level) -->
+  <div class="panel" id="routes">
+    <div class="card">
+      <label>Origem (CEP)</label>
+      <div class="row">
+        <input id="originCep" placeholder="00000-000" maxlength="9">
+        <input id="originNum" placeholder="Nº (opcional)" style="width:110px">
+      </div>
+
+      <label>Destino (CEP)</label>
+      <div class="row">
+        <input id="destCep" placeholder="00000-000" maxlength="9">
+        <input id="destNum" placeholder="Nº (opcional)" style="width:110px">
+      </div>
+
+      <label style="margin-top:8px">OpenRouteService API Key (opcional)</label>
+      <input id="orsKey" placeholder="Cole sua chave ORS aqui (opcional)" value="eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImJiMjMzOTg1Y2U2YTQ3NGZhNTMzNjBhZjVlYmIzYTExIiwiaCI6Im11cm11cjY0In0=" />
+
+      <div style="margin-top:12px; display:flex; gap:8px; align-items:center;">
+        <select id="routerSelect">
+          <option value="ors">OpenRouteService (ORS)</option>
+          <option value="maplink">Maplink (stub)</option>
+          <option value="qualp">Qualp (stub)</option>
+        </select>
+        <button class="go" id="calcRoute">Calcular</button>
+        <button class="go" id="compareRoutes" style="background:var(--map-teal)">Comparar</button>
+      </div>
+
+      <div class="error" id="routesError"></div>
+      <div class="result" id="routesResult">
+        <div class="postmark">
+          <div class="label">Resumo</div>
+          <div class="value" id="routesSummary">—</div>
+          <div class="sub" id="routesDetails">Aguardando cálculo.</div>
+        </div>
+        <div class="route-list" id="routeList"></div>
+        <div id="compareResults" style="min-height:160px; margin-top:12px">Nenhuma comparação realizada.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="map-backdrop" id="mapBackdrop"></div>
+  <div class="map-panel" id="cepMapPanel">
+    <div class="map-panel__header">
+      <span>Mapa</span>
+      <button class="go" id="closeMap" style="padding: 8px 12px; font-size: 11px;">Fechar</button>
+    </div>
+    <div id="cepMap"></div>
+  </div>
+  <footer>
+    Dados via ViaCEP + OpenStreetMap Nominatim · uso livre, sem chave de API
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
