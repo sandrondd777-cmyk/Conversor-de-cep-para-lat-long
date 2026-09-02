@@ -231,6 +231,46 @@ button.go:disabled { opacity: 0.5; cursor: wait; }
   color: #5b5647;
 }
 
+.coordinates-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.copy-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #8A8368;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.1s;
+}
+
+.copy-icon svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+.copy-icon:hover {
+  background: var(--paper-dim);
+  color: var(--ink);
+}
+
+.copy-icon:active {
+  transform: scale(0.92);
+}
+
+.copy-icon.copied {
+  color: var(--map-teal);
+}
+
 .error {
   display: none;
   margin-top: 18px;

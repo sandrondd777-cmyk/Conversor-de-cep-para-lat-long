@@ -33,6 +33,28 @@ cepInput.addEventListener('input', () => {
 const cepNearby = document.getElementById('cepNearby');
 const cepInfo = document.getElementById('cepInfo');
 
+const cepAlteradoMap = {
+  '36415970': { novo: '36410970' },
+};
+
+function formatarCep(cep) {
+  const digits = (cep || '').replace(/\D/g, '');
+  if (digits.length !== 8) return cep || '';
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
+function buscarCepAlterado(raw) {
+  const digits = (raw || '').replace(/\D/g, '');
+  const alterado = cepAlteradoMap[digits];
+  if (!alterado) return null;
+
+  return {
+    antigo: formatarCep(digits),
+    novo: formatarCep(alterado.novo),
+    novoDigits: alterado.novo,
+  };
+}
+
 function showInfo(el, msg) {
   el.innerHTML = msg;
   el.classList.add('show');
@@ -261,11 +283,18 @@ async function buscarPorCep() {
     return;
   }
 
+  const cepAlterado = buscarCepAlterado(raw);
+  const cepConsulta = cepAlterado ? cepAlterado.novoDigits : raw;
+
   cepBtn.disabled = true;
   cepBtn.textContent = 'Buscando...';
 
   try {
-    const viaCepResp = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
+    if (cepAlterado) {
+      showInfo(cepInfo, `Atenção! O CEP ${cepAlterado.antigo} foi alterado para ${cepAlterado.novo}. Buscando o CEP vigente.`);
+    }
+
+    const viaCepResp = await fetch(`https://viacep.com.br/ws/${cepConsulta}/json/`);
     const viaCepData = await viaCepResp.json();
 
     if (viaCepData.erro) {
@@ -277,7 +306,7 @@ async function buscarPorCep() {
     let coords = await tentarGeocodificar(enderecoStr);
 
     if (!coords) {
-      coords = await tentarGeocodificarPorCep(raw, viaCepData.localidade, viaCepData.uf);
+      coords = await tentarGeocodificarPorCep(cepConsulta, viaCepData.localidade, viaCepData.uf);
     }
 
     if (coords) {
@@ -286,31 +315,31 @@ async function buscarPorCep() {
       cepResult.classList.add('show');
 
       cepBtn.textContent = 'Buscando alternativas...';
-      const encontrados = await buscarCepsProximos(viaCepData, raw);
+      const encontrados = await buscarCepsProximos(viaCepData, cepConsulta);
       if (encontrados.length) {
-        showInfo(cepInfo, `Endereço encontrado. A seguir, ${encontrados.length} CEP(s) alternativo(s) mais próximos:`);
+        showInfo(cepInfo, `Atenção! O CEP ${cepAlterado ? cepAlterado.antigo : ''}${cepAlterado ? ' foi alterado para ' : ''}${cepAlterado ? cepAlterado.novo : ''}${cepAlterado ? '. ' : ''}Endereço encontrado. A seguir, ${encontrados.length} CEP(s) alternativo(s) mais próximos:`);
         mapToggle.style.display = 'inline-flex';
-        atualizarMapas({ cep: raw, endereco: enderecoStr, ...coords }, encontrados);
+        atualizarMapas({ cep: cepConsulta, endereco: enderecoStr, ...coords }, encontrados);
       } else {
-        showInfo(cepInfo, `Endereço encontrado mas não foi possível localizar CEPs alternativos com coordenadas.`);
+        showInfo(cepInfo, `Atenção! O CEP ${cepAlterado ? cepAlterado.antigo : ''}${cepAlterado ? ' foi alterado para ' : ''}${cepAlterado ? cepAlterado.novo : ''}${cepAlterado ? '. ' : ''}Endereço encontrado mas não foi possível localizar CEPs alternativos com coordenadas.`);
         mapToggle.style.display = 'inline-flex';
-        atualizarMapas({ cep: raw, endereco: enderecoStr, ...coords }, []);
+        atualizarMapas({ cep: cepConsulta, endereco: enderecoStr, ...coords }, []);
       }
       return;
     }
 
     // endereço exato não geocodificável — busca alternativas próximas
-    showInfo(cepInfo, `Esse endereço não está indexado no mapa (comum em ruas novas ou pouco mapeadas). Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Buscando os CEPs e coordenadas mais próximos, aguarde...`);
+    showInfo(cepInfo, `${cepAlterado ? `Atenção! O CEP ${cepAlterado.antigo} foi alterado para ${cepAlterado.novo}. ` : ''}Esse endereço não está indexado no mapa (comum em ruas novas ou pouco mapeadas). Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Buscando os CEPs e coordenadas mais próximos, aguarde...`);
     cepBtn.textContent = 'Buscando próximos...';
 
-    const encontrados = await buscarCepsProximos(viaCepData, raw);
+    const encontrados = await buscarCepsProximos(viaCepData, cepConsulta);
 
     if (!encontrados.length) {
-      showInfo(cepInfo, `Esse endereço não está indexado no mapa. Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Também não foi possível localizar CEPs vizinhos com coordenadas.`);
+      showInfo(cepInfo, `${cepAlterado ? `Atenção! O CEP ${cepAlterado.antigo} foi alterado para ${cepAlterado.novo}. ` : ''}Esse endereço não está indexado no mapa. Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Também não foi possível localizar CEPs vizinhos com coordenadas.`);
       mapToggle.style.display = 'none';
       atualizarMapas(null, []);
     } else {
-      showInfo(cepInfo, `Esse endereço não está indexado no mapa. Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Abaixo, os CEPs e coordenadas mais próximos encontrados (mesma rua ou região):`);
+      showInfo(cepInfo, `${cepAlterado ? `Atenção! O CEP ${cepAlterado.antigo} foi alterado para ${cepAlterado.novo}. ` : ''}Esse endereço não está indexado no mapa. Endereço via ViaCEP: <strong>${enderecoStr}</strong><br>Abaixo, os CEPs e coordenadas mais próximos encontrados (mesma rua ou região):`);
       mapToggle.style.display = 'inline-flex';
       atualizarMapas(null, encontrados);
     }
@@ -324,6 +353,51 @@ async function buscarPorCep() {
 
 cepBtn.addEventListener('click', buscarPorCep);
 cepInput.addEventListener('keydown', e => { if (e.key === 'Enter') buscarPorCep(); });
+
+async function copiarTexto(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (error) {
+      // Tenta o método compatível quando a permissão da API moderna falhar.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.top = '0';
+  textarea.style.left = '0';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  const copiado = document.execCommand('copy');
+  textarea.remove();
+  if (!copiado) throw new Error('Copy command failed');
+}
+
+document.getElementById('copyCoordinates').addEventListener('click', () => {
+  const text = cepCoords.textContent;
+  if (!text || text.includes('—')) return;
+  const btn = document.getElementById('copyCoordinates');
+  const iconCopy = btn.querySelector('.icon-copy');
+  const iconCheck = btn.querySelector('.icon-check');
+  copiarTexto(text).then(() => {
+    iconCopy.style.display = 'none';
+    iconCheck.style.display = 'block';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      iconCopy.style.display = 'block';
+      iconCheck.style.display = 'none';
+      btn.classList.remove('copied');
+    }, 1500);
+  }).catch(() => {
+    showError(cepError, 'Não foi possível copiar as coordenadas automaticamente.');
+  });
+});
 
 mapToggle.addEventListener('click', () => {
   if (mapPanel.classList.contains('open')) {
