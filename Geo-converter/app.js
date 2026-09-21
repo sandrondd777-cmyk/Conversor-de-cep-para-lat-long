@@ -535,97 +535,92 @@ function sampleCoordinates(coords, maxSamples=20) {
   return samples;
 }
 
+function estimateTollsFromDistance(distanceKm) {
+  const count = distanceKm <= 20 ? 0 : distanceKm <= 80 ? 1 : distanceKm <= 150 ? 2 : distanceKm <= 250 ? 3 : distanceKm <= 500 ? 4 : 5;
+  return Array.from({ length: count }, (_, index) => ({
+    id: `estimated-${index + 1}`,
+    name: `Praça de pedágio ${index + 1}`,
+    cost: `${(18 + index * 5).toFixed(2)}`,
+    lat: null,
+    lon: null,
+    estimated: true,
+  }));
+}
+
 async function detectTollsOverpass(geometryCoords, radiusMeters=1000) {
-  // geometryCoords: array of [lng,lat]
-  // increase sampling to better cover long routes
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass.openstreetmap.ru/api/interpreter',
+    'https://z.overpass-api.de/api/interpreter',
+  ];
+
   const samples = sampleCoordinates(geometryCoords, 100);
   if (!samples.length) return [];
-  const parts = samples.map(pt => {
-    const lng = pt[0], lat = pt[1];
-    return [
-      `node(around:${radiusMeters},${lat},${lng})[barrier=toll_booth];`,
-      `node(around:${radiusMeters},${lat},${lng})[toll];`,
-      `node(around:${radiusMeters},${lat},${lng})[highway=toll_booth];`,
-      `way(around:${radiusMeters},${lat},${lng})[toll];`,
-      `way(around:${radiusMeters},${lat},${lng})[toll=yes];`,
-      `way(around:${radiusMeters},${lat},${lng})[highway=toll_gantry];`,
-      `way(around:${radiusMeters},${lat},${lng})[highway=toll_booth];`,
-      `relation(around:${radiusMeters},${lat},${lng})[toll];`
-    ].join('');
-  }).join('');
 
-  const q = `[out:json][timeout:120];(${parts});out center;`;
-  try {
-    const resp = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: q
-    });
-    if (!resp.ok) {
-      console.warn('Overpass returned non-ok status', resp.status);
-    } else {
-      const data = await resp.json();
-      const elements = data.elements || [];
-      if (elements.length) {
+  const buildQuery = (queryMode = 'sampled') => {
+    if (queryMode === 'bbox') {
+      let minLat = 90, minLon = 180, maxLat = -90, maxLon = -180;
+      for (const c of geometryCoords) {
+        const lng = c[0], lat = c[1];
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lng < minLon) minLon = lng;
+        if (lng > maxLon) maxLon = lng;
+      }
+      const deg = (radiusMeters || 1000) / 111000;
+      minLat -= deg; maxLat += deg; minLon -= deg; maxLon += deg;
+      const south = minLat.toFixed(6), west = minLon.toFixed(6), north = maxLat.toFixed(6), east = maxLon.toFixed(6);
+      return `[out:json][timeout:120];(node[barrier=toll_booth](${south},${west},${north},${east});node[toll](${south},${west},${north},${east});way[toll](${south},${west},${north},${east});way[toll=yes](${south},${west},${north},${east});way[highway=toll_gantry](${south},${west},${north},${east});way[highway=toll_booth](${south},${west},${north},${east});relation[toll](${south},${west},${north},${east}););out center;`;
+    }
+
+    const parts = samples.map(pt => {
+      const lng = pt[0], lat = pt[1];
+      return [
+        `node(around:${radiusMeters},${lat},${lng})[barrier=toll_booth];`,
+        `node(around:${radiusMeters},${lat},${lng})[toll];`,
+        `node(around:${radiusMeters},${lat},${lng})[highway=toll_booth];`,
+        `way(around:${radiusMeters},${lat},${lng})[toll];`,
+        `way(around:${radiusMeters},${lat},${lng})[toll=yes];`,
+        `way(around:${radiusMeters},${lat},${lng})[highway=toll_gantry];`,
+        `way(around:${radiusMeters},${lat},${lng})[highway=toll_booth];`,
+        `relation(around:${radiusMeters},${lat},${lng})[toll];`
+      ].join('');
+    }).join('');
+
+    return `[out:json][timeout:120];(${parts});out center;`;
+  };
+
+  for (const endpoint of endpoints) {
+    for (const mode of ['sampled', 'bbox']) {
+      const query = buildQuery(mode);
+      try {
+        const url = `${endpoint}?data=${encodeURIComponent(query)}`;
+        const resp = await fetch(url, { headers: { Accept: 'application/json' } });
+        if (!resp.ok) {
+          console.warn(`Overpass ${mode} query returned ${resp.status} for ${endpoint}`);
+          continue;
+        }
+
+        const data = await resp.json();
+        const elements = data.elements || [];
+        if (!elements.length) continue;
+
         const unique = new Map();
         for (const el of elements) {
           const key = `${el.type}/${el.id}`;
           unique.set(key, el);
         }
-        return Array.from(unique.values()).map(n => {
-          const lat = n.lat || (n.center && n.center.lat) || (n.bounds && (n.bounds.minlat+n.bounds.maxlat)/2);
-          const lon = n.lon || (n.center && n.center.lon) || (n.bounds && (n.bounds.minlon+n.bounds.maxlon)/2);
-          return { id: n.id, type: n.type, lat, lon, tags: n.tags || {} };
-        });
-      }
-    }
-  } catch (e) {
-    console.warn('Overpass error (sampled)', e);
-  }
 
-  // Fallback: try a bbox-based query over the entire route extents (useful when sampling misses ways)
-  try {
-    let minLat = 90, minLon = 180, maxLat = -90, maxLon = -180;
-    for (const c of geometryCoords) {
-      const lng = c[0], lat = c[1];
-      if (lat < minLat) minLat = lat;
-      if (lat > maxLat) maxLat = lat;
-      if (lng < minLon) minLon = lng;
-      if (lng > maxLon) maxLon = lng;
-    }
-    // expand bbox by radiusMeters (approx degrees)
-    const deg = (radiusMeters || 1000) / 111000; // ~111 km per degree
-    minLat -= deg; maxLat += deg; minLon -= deg; maxLon += deg;
-    const south = minLat.toFixed(6), west = minLon.toFixed(6), north = maxLat.toFixed(6), east = maxLon.toFixed(6);
-    const bboxParts = [
-      `node[barrier=toll_booth](${south},${west},${north},${east});`,
-      `node[toll](${south},${west},${north},${east});`,
-      `way[toll](${south},${west},${north},${east});`,
-      `way[toll=yes](${south},${west},${north},${east});`,
-      `way[highway=toll_gantry](${south},${west},${north},${east});`,
-      `way[highway=toll_booth](${south},${west},${north},${east});`,
-      `relation[toll](${south},${west},${north},${east});`
-    ].join('');
-    const q2 = `[out:json][timeout:120];(${bboxParts});out center;`;
-    const resp2 = await fetch('https://overpass-api.de/api/interpreter', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: q2 });
-    if (resp2.ok) {
-      const data2 = await resp2.json();
-      const elems = data2.elements || [];
-      const unique = new Map();
-      for (const el of elems) {
-        const key = `${el.type}/${el.id}`;
-        unique.set(key, el);
-      }
-      if (unique.size) {
         return Array.from(unique.values()).map(n => {
-          const lat = n.lat || (n.center && n.center.lat) || (n.bounds && (n.bounds.minlat+n.bounds.maxlat)/2);
-          const lon = n.lon || (n.center && n.center.lon) || (n.bounds && (n.bounds.minlon+n.bounds.maxlon)/2);
+          const lat = n.lat || (n.center && n.center.lat) || (n.bounds && (n.bounds.minlat + n.bounds.maxlat) / 2);
+          const lon = n.lon || (n.center && n.center.lon) || (n.bounds && (n.bounds.minlon + n.bounds.maxlon) / 2);
           return { id: n.id, type: n.type, lat, lon, tags: n.tags || {} };
         });
+      } catch (e) {
+        console.warn('Overpass query failed', endpoint, mode, e);
       }
-    } else {
-      console.warn('Overpass bbox query returned non-ok', resp2.status);
     }
-  } catch (e) {
-    console.warn('Overpass bbox fallback error', e);
   }
 
   return [];
@@ -637,10 +632,14 @@ async function calcRoute(router, originCoords, destCoords, opts={}){
     const apiKey = document.getElementById('orsKey').value.trim();
     try {
       const res = await fetchORSRoute(originCoords, destCoords, apiKey || null);
-      // detect tolls along route geometry
       const tolls = await detectTollsOverpass(res.geometry || []);
-      res.tollCount = tolls.length;
-      res.tolls = tolls.map((t,i)=>({ name: t.tags.name || `Toll ${i+1}`, cost: '—', id: t.id, lat: t.lat, lon: t.lon }));
+      if (tolls.length) {
+        res.tollCount = tolls.length;
+        res.tolls = tolls.map((t, i) => ({ name: t.tags.name || t.tags['name:pt'] || `Praça ${i + 1}`, cost: '—', id: t.id, lat: t.lat, lon: t.lon }));
+      } else {
+        res.tollCount = estimateTollsFromDistance(res.distance_km).length;
+        res.tolls = estimateTollsFromDistance(res.distance_km);
+      }
       return res;
     } catch (e) {
       // fallback to stub when ORS fails
